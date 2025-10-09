@@ -1,0 +1,12 @@
+name: My Custom Theme
+type: theme
+description: 'A fully custom standalone theme.'
+core_version_requirement: ^10 || ^11
+base theme: false
+starterkit: true
+libraries:
+  - mytheme/global-styling
+regions:
+  header: Header
+  content: Content
+  footer: Footer

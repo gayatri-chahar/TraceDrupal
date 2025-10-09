@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <head-placeholder token="{{ placeholder_token }}">
+    <title>{{ head_title|safe_join(' | ') }}</title>
+    <css-placeholder token="{{ placeholder_token }}">
+    <js-placeholder token="{{ placeholder_token }}">
+  </head>
+  <body>
+    <header>
+      <h1>{{ site_name }}</h1>
+      {{ page.header }}
+    </header>
+
+    <main>
+      {{ page.content }}
+    </main>
+
+    <footer>
+      {{ page.footer }}
+    </footer>
+
+    <js-bottom-placeholder token="{{ placeholder_token }}">
+  </body>
+</html>
