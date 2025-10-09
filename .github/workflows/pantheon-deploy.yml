@@ -14,7 +14,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2️⃣ Setup SSH for Pantheon Git push
+      # 2️⃣ Debug secrets (temporary, remove after confirming)
+      - name: Debug secrets
+        run: |
+          if [ -z "${{ secrets.PANTHEON_SITE_ID }}" ]; then
+            echo "Error: PANTHEON_SITE_ID is empty"
+            exit 1
+          fi
+          if [ -z "${{ secrets.PANTHEON_PRIVATE_KEY }}" ]; then
+            echo "Error: PANTHEON_PRIVATE_KEY is empty"
+            exit 1
+          fi
+          if [ -z "${{ secrets.PANTHEON_MACHINE_TOKEN }}" ]; then
+            echo "Error: PANTHEON_MACHINE_TOKEN is empty"
+            exit 1
+          fi
+          if [ -z "${{ secrets.PANTHEON_SITE_NAME }}" ]; then
+            echo "Error: PANTHEON_SITE_NAME is empty"
+            exit 1
+          fi
+          echo "All required secrets are set!"
+
+      # 3️⃣ Setup SSH for Pantheon Git push
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
@@ -22,25 +43,8 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p 2222 codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in >> ~/.ssh/known_hosts
 
-      # 3️⃣ Add Pantheon remote and push code
+      # 4️⃣ Add Pantheon remote and push code
       - name: Push code to Pantheon
         run: |
           git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in:2222/~/repository.git
-          GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" git push pantheon master --force
-
-      # 4️⃣ Install Terminus (Pantheon CLI)
-      - name: Install Terminus
-        run: |
-          curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
-          chmod +x terminus
-          sudo mv terminus /usr/local/bin/terminus
-
-      # 5️⃣ Authenticate with Pantheon
-      - name: Authenticate with Pantheon
-        run: terminus auth:login --machine-token="${{ secrets.PANTHEON_MACHINE_TOKEN }}"
-
-      # 6️⃣ Run Drupal configuration import and cache rebuild
-      - name: Run Drupal commands on Pantheon
-        run: |
-          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
-          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cr
+          GIT_SSH_COMMAND="ssh -o Strict
