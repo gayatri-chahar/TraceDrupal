@@ -14,37 +14,42 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2️⃣ Debug secrets (temporary, remove after confirming)
-      - name: Debug secrets
+      # 2️⃣ Verify secrets are present
+      - name: Validate secrets
         run: |
-          if [ -z "${{ secrets.PANTHEON_SITE_ID }}" ]; then
-            echo "Error: PANTHEON_SITE_ID is empty"
-            exit 1
-          fi
-          if [ -z "${{ secrets.PANTHEON_PRIVATE_KEY }}" ]; then
-            echo "Error: PANTHEON_PRIVATE_KEY is empty"
-            exit 1
-          fi
-          if [ -z "${{ secrets.PANTHEON_MACHINE_TOKEN }}" ]; then
-            echo "Error: PANTHEON_MACHINE_TOKEN is empty"
-            exit 1
-          fi
-          if [ -z "${{ secrets.PANTHEON_SITE_NAME }}" ]; then
-            echo "Error: PANTHEON_SITE_NAME is empty"
-            exit 1
-          fi
-          echo "All required secrets are set!"
+          [ -z "${{ secrets.PANTHEON_SITE_ID }}" ] && echo "❌ Missing PANTHEON_SITE_ID" && exit 1
+          [ -z "${{ secrets.PANTHEON_PRIVATE_KEY }}" ] && echo "❌ Missing PANTHEON_PRIVATE_KEY" && exit 1
+          [ -z "${{ secrets.PANTHEON_MACHINE_TOKEN }}" ] && echo "❌ Missing PANTHEON_MACHINE_TOKEN" && exit 1
+          [ -z "${{ secrets.PANTHEON_SITE_NAME }}" ] && echo "❌ Missing PANTHEON_SITE_NAME" && exit 1
+          echo "✅ All required secrets found!"
 
-      # 3️⃣ Setup SSH for Pantheon Git push
+      # 3️⃣ Setup SSH for Pantheon
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PANTHEON_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          printf "%s" "${{ secrets.PANTHEON_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -p 2222 codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in >> ~/.ssh/known_hosts
 
-      # 4️⃣ Add Pantheon remote and push code
+      # 4️⃣ Push code to Pantheon
       - name: Push code to Pantheon
         run: |
-          git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in:2222/~/repository.git
-          GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" git push pantheon master --force
+          git remote add pantheon "ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in:2222/~/repository.git"
+          GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git push pantheon master --force
+
+      # 5️⃣ Install Terminus
+      - name: Install Terminus (Pantheon CLI)
+        run: |
+          curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
+          chmod +x terminus
+          sudo mv terminus /usr/local/bin/terminus
+
+      # 6️⃣ Authenticate with Pantheon
+      - name: Authenticate with Pantheon
+        run: terminus auth:login --machine-token="${{ secrets.PANTHEON_MACHINE_TOKEN }}"
+
+      # 7️⃣ Run Drupal Config Import and Cache Rebuild
+      - name: Run Drupal commands (cim + cr)
+        run: |
+          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
+          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cr
