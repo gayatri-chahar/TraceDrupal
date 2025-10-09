@@ -47,4 +47,4 @@ jobs:
       - name: Push code to Pantheon
         run: |
           git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in:2222/~/repository.git
-          GIT_SSH_COMMAND="ssh -o Strict
+          GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no" git push pantheon master --force
