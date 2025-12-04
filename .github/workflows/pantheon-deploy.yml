@@ -44,6 +44,10 @@ jobs:
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+          
+      - name: Set Pantheon Dev environment to SFTP mode
+        run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
+
 
       - name: Run Drush commands on Dev
         run: |
