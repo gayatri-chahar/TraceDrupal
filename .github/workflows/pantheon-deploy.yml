@@ -3,7 +3,7 @@ name: Deploy to Pantheon
 on:
   push:
     branches:
-      - master        # Deploy only when master is updated
+      - master
 
 jobs:
   deploy:
@@ -19,13 +19,18 @@ jobs:
         fetch-depth: 0
 
     # -----------------------------------
-    # 2. Validate Secrets (Prevent Errors)
+    # 2. Validate Secrets (Fixed for multi-line secrets)
     # -----------------------------------
     - name: Validate GitHub Secrets
+      shell: bash
       run: |
-        [ -z "${{ secrets.PANTHEON_SSH_KEY }}" ] && echo "❌ Missing PANTHEON_SSH_KEY" && exit 1
-        [ -z "${{ secrets.PANTHEON_MACHINE_TOKEN }}" ] && echo "❌ Missing PANTHEON_MACHINE_TOKEN" && exit 1
-        [ -z "${{ secrets.PANTHEON_SITE_NAME }}" ] && echo "❌ Missing PANTHEON_SITE_NAME" && exit 1
+        if [[ -z "$PANTHEON_SSH_KEY" ]]; then echo "❌ Missing PANTHEON_SSH_KEY"; exit 1; fi
+        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
+        if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
+      env:
+        PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+        PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
     # ---------------------
     # 3. Setup SSH
@@ -33,9 +38,12 @@ jobs:
     - name: Setup SSH
       run: |
         mkdir -p ~/.ssh
-        echo "${{ secrets.PANTHEON_SSH_KEY }}" > ~/.ssh/id_rsa
+        echo "${PANTHEON_SSH_KEY}" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -p 2222 codeserver.dev.${{ secrets.PANTHEON_SITE_NAME }}.drush.in >> ~/.ssh/known_hosts
+        ssh-keyscan -p 2222 codeserver.dev.${PANTHEON_SITE_NAME}.drush.in >> ~/.ssh/known_hosts
+      env:
+        PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
     # ---------------------
     # 4. Set up PHP & Composer
@@ -60,7 +68,7 @@ jobs:
       run: composer install --no-dev --optimize-autoloader
 
     # -------------------------------------------------
-    # 6. NPM Theme Build (If you use custom theme)
+    # 6. NPM Theme Build (If custom theme exists)
     # -------------------------------------------------
     - name: Install NodeJS
       uses: actions/setup-node@v3
@@ -86,7 +94,9 @@ jobs:
     # -----------------------------------------
     - name: Add Pantheon Git Remote
       run: |
-        git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_NAME }}.drush.in:2222/~/repository.git || true
+        git remote add pantheon ssh://codeserver.dev.${PANTHEON_SITE_NAME}.drush.in:2222/~/repository.git || true
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
     - name: Push Code to Pantheon
       run: git push pantheon master --force
@@ -104,6 +114,8 @@ jobs:
     # ------------------------
     - name: Import Config, Update DB, Clear Cache
       run: |
-        terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
-        terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- updb -y
-        terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cr
+        terminus drush ${PANTHEON_SITE_NAME}.dev -- cim -y
+        terminus drush ${PANTHEON_SITE_NAME}.dev -- updb -y
+        terminus drush ${PANTHEON_SITE_NAME}.dev -- cr
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
