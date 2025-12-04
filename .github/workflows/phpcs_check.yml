@@ -1,0 +1,39 @@
+name: Check PHPCS Issues on Push
+
+on:
+  push:
+    branches:
+      - Trace_branch-01
+      - develop
+      # You can also add 'pull_request' here if you want to block PRs from merging with errors:
+      # - pull_request
+
+jobs:
+  phpcs_check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP environment
+        # Uses the shivammathur/setup-php action to configure the correct PHP version and extensions
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1' # Adjust to your Drupal project's required PHP version
+          extensions: mbstring, xml, pdo_mysql, zip, gd, curl
+          tools: composer
+
+      - name: Install Composer dependencies
+        # This assumes your Drupal/custom module project has 'drupal/coder' in the 'require-dev' section
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run PHP Code Sniffer (PHPCS)
+        # This step is configured to fail the entire workflow if any issues are found.
+        run: |
+          # 1. Register the Drupal standards with phpcs
+          ./vendor/bin/phpcs --config-set installed_paths vendor/drupal/coder/coder_sniffer
+          
+          # 2. Run the check using Drupal and DrupalPractice standards
+          #    Specify the paths you want to scan (e.g., your custom modules/themes)
+          ./vendor/bin/phpcs --standard=Drupal,DrupalPractice --extensions=php,module,inc,install,test,profile,theme,css,info,txt,md modules/custom themes/custom
