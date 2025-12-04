@@ -1,12 +1,12 @@
-name: Deploy to Pantheon
+name: Deploy to Pantheon Multidev
 
 on:
   push:
     branches:
-      - master  # Deploy only when master is updated
+      - master
 
 jobs:
-  deploy:
+  pantheon-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,8 +24,14 @@ jobs:
       - name: Validate GitHub Secrets
         shell: bash
         run: |
-          if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
-          if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
+          if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then
+            echo "❌ Missing PANTHEON_MACHINE_TOKEN"
+            exit 1
+          fi
+          if [[ -z "$PANTHEON_SITE_NAME" ]]; then
+            echo "❌ Missing PANTHEON_SITE_NAME"
+            exit 1
+          fi
         env:
           PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
@@ -72,25 +78,56 @@ jobs:
           fi
 
       # --------------------------
-      # 5. Deploy to Pantheon via Terminus GitHub Action
+      # 5. Create Multidev Environment
       # --------------------------
-      - name: Deploy to Pantheon
+      - name: Create Multidev Environment
+        shell: bash
+        run: |
+          # Generate a unique multidev name
+          export MULTIDEV_NAME="ci-${GITHUB_RUN_NUMBER}"
+          echo "Using multidev: $MULTIDEV_NAME"
+
+          # Create multidev from dev
+          terminus multidev:create $PANTHEON_SITE_NAME.dev $MULTIDEV_NAME --yes
+
+          # Export for next steps
+          echo "MULTIDEV_NAME=$MULTIDEV_NAME" >> $GITHUB_ENV
+        env:
+          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+
+      # --------------------------
+      # 6. Deploy Code to Multidev
+      # --------------------------
+      - name: Deploy to Multidev
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           site: ${{ secrets.PANTHEON_SITE_NAME }}
-          env: dev
-          build: true      # runs Composer & Node build automatically
-          deploy: true     # pushes code & deploys automatically
+          env: ${{ env.MULTIDEV_NAME }}
+          build: true
+          deploy: true
 
       # --------------------------
-      # 6. Run Drush Commands via Terminus API
+      # 7. Run Drush Commands on Multidev
       # --------------------------
       - name: Run Drush Commands
         run: |
-          terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
-          terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
-          terminus drush $PANTHEON_SITE_NAME.dev -- cr
+          terminus drush $PANTHEON_SITE_NAME.${MULTIDEV_NAME} -- cim -y
+          terminus drush $PANTHEON_SITE_NAME.${MULTIDEV_NAME} -- updb -y
+          terminus drush $PANTHEON_SITE_NAME.${MULTIDEV_NAME} -- cr
         env:
           PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
-          TERMINUS_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+
+      # --------------------------
+      # 8. Optional: Merge Multidev into Dev
+      # --------------------------
+      - name: Merge Multidev to Dev
+        shell: bash
+        run: |
+          terminus multidev:merge $PANTHEON_SITE_NAME.${MULTIDEV_NAME} --to-dev --yes
+          terminus multidev:delete $PANTHEON_SITE_NAME.${MULTIDEV_NAME} --yes
+        env:
+          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
