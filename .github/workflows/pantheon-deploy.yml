@@ -10,51 +10,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout repository
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    # 2. Validate secrets
     - name: Validate secrets
       run: |
-        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then
-          echo "❌ Missing PANTHEON_MACHINE_TOKEN"
-          exit 1
-        fi
-        if [[ -z "$PANTHEON_SITE_NAME" ]]; then
-          echo "❌ Missing PANTHEON_SITE_NAME"
-          exit 1
-        fi
+        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
+        if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
       env:
         PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
         PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-    # 3. Setup PHP & Composer
+    # Install PHP & Composer
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
         php-version: '8.2'
-        extensions: mbstring, intl, gd, pdo_mysql
         tools: composer
-
-    - name: Cache Composer dependencies
-      uses: actions/cache@v3
-      with:
-        path: vendor
-        key: composer-${{ hashFiles('composer.lock') }}
 
     - name: Install Composer dependencies
       run: composer install --no-dev --optimize-autoloader
 
-    # 4. NodeJS for theme builds
+    # NodeJS for theme
     - name: Setup NodeJS
       uses: actions/setup-node@v3
       with:
         node-version: '18'
 
-    - name: Build theme assets (if exists)
+    - name: Build theme assets
       run: |
         if [ -d "web/themes/custom" ]; then
           for theme in web/themes/custom/*; do
@@ -67,18 +50,18 @@ jobs:
           done
         fi
 
-    # 5. Deploy via Pantheon Terminus Action (no SSH needed)
+    # Deploy using Pantheon GitHub Action
     - name: Deploy to Pantheon
       uses: pantheon-systems/terminus-github-actions@v1
       with:
         pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
         site: ${{ secrets.PANTHEON_SITE_NAME }}
         env: dev
-        build: true    # Run composer & node builds if needed
-        deploy: true   # Push code and apply upstream updates
+        build: true   # run composer & node builds
+        deploy: true  # push code & apply updates
 
-    # 6. Run Drush commands via Terminus
-    - name: Import Config, Update DB, Clear Cache
+    # Run Drush commands via Terminus API (no SSH needed)
+    - name: Run Drush Commands
       run: |
         terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
         terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
