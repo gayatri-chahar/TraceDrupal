@@ -10,10 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install PHP & Composer
+      # 2. Install PHP & Composer
+      - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
@@ -22,7 +24,8 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-dev --optimize-autoloader
 
-      - name: Install NodeJS
+      # 3. Install NodeJS & build theme
+      - name: Setup NodeJS
         uses: actions/setup-node@v3
         with:
           node-version: '18'
@@ -40,18 +43,26 @@ jobs:
             done
           fi
 
+      # 4. Install Terminus
       - name: Install Terminus
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
 
+      # 5. Deploy code via Terminus (deploy master to dev environment)
       - name: Deploy to dev environment
         shell: bash
         run: |
-          # Import config, update DB, clear cache via Terminus API
-          terminus site:env:import $PANTHEON_SITE_NAME.dev --yes
+          # Deploy code to dev environment
+          terminus env:deploy $PANTHEON_SITE_NAME.dev --yes --note="Deploy from GitHub Actions"
+
+          # Import configuration via Drush
           terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
+          
+          # Run database updates
           terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
+          
+          # Clear cache
           terminus drush $PANTHEON_SITE_NAME.dev -- cr
         env:
           PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
