@@ -3,7 +3,7 @@ name: Deploy to Pantheon
 on:
   push:
     branches:
-      - master
+      - master  # Deploy only when master is updated
 
 jobs:
   deploy:
@@ -19,7 +19,7 @@ jobs:
         fetch-depth: 0
 
     # -----------------------------------
-    # 2. Validate Secrets (Fixed for multi-line secrets)
+    # 2. Validate Secrets
     # -----------------------------------
     - name: Validate GitHub Secrets
       shell: bash
@@ -36,11 +36,22 @@ jobs:
     # 3. Setup SSH
     # ---------------------
     - name: Setup SSH
+      shell: bash
       run: |
         mkdir -p ~/.ssh
-        echo "${PANTHEON_SSH_KEY}" > ~/.ssh/id_rsa
+        echo "$PANTHEON_SSH_KEY" > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -p 2222 codeserver.dev.${PANTHEON_SITE_NAME}.drush.in >> ~/.ssh/known_hosts
+
+        # Retry DNS resolution up to 5 times
+        for i in {1..5}; do
+          if ssh-keyscan -H codeserver.dev.$PANTHEON_SITE_NAME.drush.in >> ~/.ssh/known_hosts 2>/dev/null; then
+            echo "✅ DNS resolved and host added"
+            break
+          else
+            echo "⚠️ DNS not resolved, retrying in 5s..."
+            sleep 5
+          fi
+        done
       env:
         PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
         PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
@@ -55,9 +66,6 @@ jobs:
         extensions: mbstring, intl, gd, pdo_mysql
         tools: composer
 
-    # ---------------------
-    # 5. Composer Install (with Cache)
-    # ---------------------
     - name: Cache Composer dependencies
       uses: actions/cache@v3
       with:
@@ -67,10 +75,10 @@ jobs:
     - name: Install Composer dependencies
       run: composer install --no-dev --optimize-autoloader
 
-    # -------------------------------------------------
-    # 6. NPM Theme Build (If custom theme exists)
-    # -------------------------------------------------
-    - name: Install NodeJS
+    # ---------------------
+    # 5. NodeJS for Theme Builds
+    # ---------------------
+    - name: Setup NodeJS
       uses: actions/setup-node@v3
       with:
         node-version: '18'
@@ -78,23 +86,24 @@ jobs:
     - name: Build theme assets (if exists)
       run: |
         if [ -d "web/themes/custom" ]; then
-            for theme in web/themes/custom/*; do
-              if [ -f "$theme/package.json" ]; then
-                echo "Building theme: $theme"
-                cd "$theme"
-                npm install
-                npm run build || true
-                cd -
-              fi
-            done
+          for theme in web/themes/custom/*; do
+            if [ -f "$theme/package.json" ]; then
+              echo "Building theme: $theme"
+              cd "$theme"
+              npm install
+              npm run build || true
+              cd -
+            fi
+          done
         fi
 
-    # -----------------------------------------
-    # 7. Add Pantheon as a Remote & Push Build
-    # -----------------------------------------
+    # ---------------------
+    # 6. Add Pantheon Git Remote
+    # ---------------------
     - name: Add Pantheon Git Remote
+      shell: bash
       run: |
-        git remote add pantheon ssh://codeserver.dev.${PANTHEON_SITE_NAME}.drush.in:2222/~/repository.git || true
+        git remote add pantheon ssh://codeserver.dev.$PANTHEON_SITE_NAME.drush.in:2222/~/repository.git || true
       env:
         PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
@@ -102,20 +111,20 @@ jobs:
       run: git push pantheon master --force
 
     # ---------------------
-    # 8. Install Terminus
+    # 7. Install Terminus
     # ---------------------
     - name: Install Terminus
       uses: pantheon-systems/terminus-github-actions@v1
       with:
         pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
 
-    # ------------------------
-    # 9. Run Drush Commands
-    # ------------------------
+    # ---------------------
+    # 8. Run Drush Commands
+    # ---------------------
     - name: Import Config, Update DB, Clear Cache
       run: |
-        terminus drush ${PANTHEON_SITE_NAME}.dev -- cim -y
-        terminus drush ${PANTHEON_SITE_NAME}.dev -- updb -y
-        terminus drush ${PANTHEON_SITE_NAME}.dev -- cr
+        terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
+        terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
+        terminus drush $PANTHEON_SITE_NAME.dev -- cr
       env:
         PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
