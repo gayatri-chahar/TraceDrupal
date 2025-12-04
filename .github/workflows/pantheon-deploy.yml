@@ -3,45 +3,107 @@ name: Deploy to Pantheon
 on:
   push:
     branches:
-      - master
+      - master        # Deploy only when master is updated
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    # --------------------------
+    # 1. Checkout Repository
+    # --------------------------
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Validate secrets
-        run: |
-          [ -z "${{ secrets.PANTHEON_PRIVATE_KEY }}" ] && echo "Missing PANTHEON_PRIVATE_KEY" && exit 1
-          [ -z "${{ secrets.PANTHEON_MACHINE_TOKEN }}" ] && echo "Missing PANTHEON_MACHINE_TOKEN" && exit 1
-          [ -z "${{ secrets.PANTHEON_SITE_ID }}" ] && echo "Missing PANTHEON_SITE_ID" && exit 1
-          [ -z "${{ secrets.PANTHEON_SITE_NAME }}" ] && echo "Missing PANTHEON_SITE_NAME" && exit 1
+    # -----------------------------------
+    # 2. Validate Secrets (Prevent Errors)
+    # -----------------------------------
+    - name: Validate GitHub Secrets
+      run: |
+        [ -z "${{ secrets.PANTHEON_SSH_KEY }}" ] && echo "❌ Missing PANTHEON_SSH_KEY" && exit 1
+        [ -z "${{ secrets.PANTHEON_MACHINE_TOKEN }}" ] && echo "❌ Missing PANTHEON_MACHINE_TOKEN" && exit 1
+        [ -z "${{ secrets.PANTHEON_SITE_NAME }}" ] && echo "❌ Missing PANTHEON_SITE_NAME" && exit 1
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.PANTHEON_PRIVATE_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p 2222 codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in >> ~/.ssh/known_hosts
+    # ---------------------
+    # 3. Setup SSH
+    # ---------------------
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.PANTHEON_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -p 2222 codeserver.dev.${{ secrets.PANTHEON_SITE_NAME }}.drush.in >> ~/.ssh/known_hosts
 
-      - name: Add Pantheon remote and push
-        run: |
-          git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_ID }}.drush.in:2222/~/repository.git || true
-          git push pantheon master --force
+    # ---------------------
+    # 4. Set up PHP & Composer
+    # ---------------------
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, intl, gd, pdo_mysql
+        tools: composer
 
-      - name: Install Terminus
-        run: |
-          curl -L https://github.com/pantheon-systems/terminus/releases/latest/download/terminus.phar -o terminus
-          chmod +x terminus
-          sudo mv terminus /usr/local/bin/terminus
+    # ---------------------
+    # 5. Composer Install (with Cache)
+    # ---------------------
+    - name: Cache Composer dependencies
+      uses: actions/cache@v3
+      with:
+        path: vendor
+        key: composer-${{ hashFiles('composer.lock') }}
 
-      - name: Authenticate with Pantheon
-        run: terminus auth:login --machine-token="${{ secrets.PANTHEON_MACHINE_TOKEN }}"
+    - name: Install Composer dependencies
+      run: composer install --no-dev --optimize-autoloader
 
-      - name: Import config + Clear cache
-        run: |
-          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
-          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cr
+    # -------------------------------------------------
+    # 6. NPM Theme Build (If you use custom theme)
+    # -------------------------------------------------
+    - name: Install NodeJS
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Build theme assets (if exists)
+      run: |
+        if [ -d "web/themes/custom" ]; then
+            for theme in web/themes/custom/*; do
+              if [ -f "$theme/package.json" ]; then
+                echo "Building theme: $theme"
+                cd "$theme"
+                npm install
+                npm run build || true
+                cd -
+              fi
+            done
+        fi
+
+    # -----------------------------------------
+    # 7. Add Pantheon as a Remote & Push Build
+    # -----------------------------------------
+    - name: Add Pantheon Git Remote
+      run: |
+        git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_NAME }}.drush.in:2222/~/repository.git || true
+
+    - name: Push Code to Pantheon
+      run: git push pantheon master --force
+
+    # ---------------------
+    # 8. Install Terminus
+    # ---------------------
+    - name: Install Terminus
+      uses: pantheon-systems/terminus-github-actions@v1
+      with:
+        pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+
+    # ------------------------
+    # 9. Run Drush Commands
+    # ------------------------
+    - name: Import Config, Update DB, Clear Cache
+      run: |
+        terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
+        terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- updb -y
+        terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cr
