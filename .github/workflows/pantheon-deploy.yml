@@ -81,4 +81,16 @@ jobs:
           site: ${{ secrets.PANTHEON_SITE_NAME }}
           env: dev
           build: true      # runs Composer & Node build automatically
-          deploy: tr
+          deploy: true     # pushes code & deploys automatically
+
+      # --------------------------
+      # 6. Run Drush Commands via Terminus API
+      # --------------------------
+      - name: Run Drush Commands
+        run: |
+          terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
+          terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
+          terminus drush $PANTHEON_SITE_NAME.dev -- cr
+        env:
+          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+          TERMINUS_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
