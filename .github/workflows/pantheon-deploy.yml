@@ -1,125 +1,144 @@
-name: Deploy to Pantheon Multidev
+name: Deploy to Pantheon
 
 on:
   push:
     branches:
-      - master
+      - master  # Deploy only when master is updated
 
 jobs:
-  pantheon-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout code
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    # --------------------------
+    # 1. Checkout Repository
+    # --------------------------
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      # 2. Validate secrets
-      - name: Validate GitHub Secrets
-        shell: bash
-        run: |
-          if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then
-            echo "❌ Missing PANTHEON_MACHINE_TOKEN"
-            exit 1
+    # -----------------------------------
+    # 2. Validate GitHub Secrets
+    # -----------------------------------
+    - name: Validate GitHub Secrets
+      shell: bash
+      run: |
+        if [[ -z "$PANTHEON_SSH_KEY" ]]; then echo "❌ Missing PANTHEON_SSH_KEY"; exit 1; fi
+        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
+        if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
+      env:
+        PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+        PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+
+    # ---------------------
+    # 3. Setup SSH
+    # ---------------------
+    - name: Setup SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "$PANTHEON_SSH_KEY" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
+        # Retry DNS resolution up to 5 times
+        for i in {1..5}; do
+          if ssh-keyscan -H codeserver.dev.$PANTHEON_SITE_NAME.drush.in >> ~/.ssh/known_hosts 2>/dev/null; then
+            echo "✅ DNS resolved and host added"
+            break
+          else
+            echo "⚠️ DNS not resolved, retrying in 5s..."
+            sleep 5
           fi
-          if [[ -z "$PANTHEON_SITE_NAME" ]]; then
-            echo "❌ Missing PANTHEON_SITE_NAME"
-            exit 1
-          fi
-        env:
-          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+        done
+      env:
+        PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-      # 3. Setup PHP & Composer
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.2'
-          extensions: mbstring, intl, gd, pdo_mysql
-          tools: composer
+    # ---------------------
+    # 4. Setup PHP & Composer
+    # ---------------------
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, intl, gd, pdo_mysql
+        tools: composer
 
-      - name: Cache Composer dependencies
-        uses: actions/cache@v3
-        with:
-          path: vendor
-          key: composer-${{ hashFiles('composer.lock') }}
+    - name: Cache Composer dependencies
+      uses: actions/cache@v3
+      with:
+        path: vendor
+        key: composer-${{ hashFiles('composer.lock') }}
 
-      - name: Install Composer dependencies
-        run: composer install --no-dev --optimize-autoloader
+    - name: Install Composer dependencies
+      run: composer install --no-dev --optimize-autoloader
 
-      # 4. Setup NodeJS & build theme
-      - name: Setup NodeJS
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
+    # ---------------------
+    # 5. NodeJS for Theme Builds
+    # ---------------------
+    - name: Setup NodeJS
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
 
-      - name: Build theme assets
-        run: |
-          if [ -d "web/themes/custom" ]; then
-            for theme in web/themes/custom/*; do
-              if [ -f "$theme/package.json" ]; then
-                echo "Building theme: $theme"
-                cd "$theme"
-                npm install
-                npm run build || true
-                cd -
-              fi
-            done
-          fi
+    - name: Build theme assets (if exists)
+      run: |
+        if [ -d "web/themes/custom" ]; then
+          for theme in web/themes/custom/*; do
+            if [ -f "$theme/package.json" ]; then
+              echo "Building theme: $theme"
+              cd "$theme"
+              npm install
+              npm run build || true
+              cd -
+            fi
+          done
+        fi
 
-      # 5. Install Terminus
-      - name: Install Terminus
-        run: |
-          curl -O https://raw.githubusercontent.com/pantheon-systems/terminus/4.x/scripts/install-terminus.sh
-          chmod +x install-terminus.sh
-          ./install-terminus.sh
-          terminus --version
-        env:
-          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+    # ---------------------
+    # 6. Add Pantheon Git Remote
+    # ---------------------
+    - name: Add Pantheon Git Remote
+      shell: bash
+      run: |
+        git remote add pantheon ssh://codeserver.dev.$PANTHEON_SITE_NAME.drush.in:2222/~/repository.git || true
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-      # 6. Create Multidev Environment
-      - name: Create Multidev Environment
-        shell: bash
-        run: |
-          export MULTIDEV_NAME="ci-${GITHUB_RUN_NUMBER}"
-          echo "Using multidev: $MULTIDEV_NAME"
+    - name: Push Code to Pantheon
+      run: git push pantheon master --force
 
-          terminus auth:login --machine-token=$PANTHEON_MACHINE_TOKEN
+    # ---------------------
+    # 7. Install Terminus
+    # ---------------------
+    - name: Install Terminus
+      uses: pantheon-systems/terminus-github-actions@v1
+      with:
+        pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
 
-          terminus multidev:create $PANTHEON_SITE_NAME.dev $MULTIDEV_NAME --yes
-          echo "MULTIDEV_NAME=$MULTIDEV_NAME" >> $GITHUB_ENV
-        env:
-          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+    # ---------------------
+    # 8. Create Multidev Environment
+    # ---------------------
+    - name: Create Multidev
+      shell: bash
+      run: |
+        export MULTIDEV_NAME="ci-${GITHUB_RUN_NUMBER}"
+        echo "Creating multidev: $MULTIDEV_NAME"
+        terminus multidev:create $PANTHEON_SITE_NAME.dev $MULTIDEV_NAME --yes
+        echo "MULTIDEV_NAME=$MULTIDEV_NAME" >> $GITHUB_ENV
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-      # 7. Deploy to Multidev
-      - name: Deploy to Multidev
-        uses: pantheon-systems/terminus-github-actions@v1
-        with:
-          pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-          site: ${{ secrets.PANTHEON_SITE_NAME }}
-          env: ${{ env.MULTIDEV_NAME }}
-          build: true
-          deploy: true
-
-      # 8. Run Drush Commands
-      - name: Run Drush Commands
-        run: |
-          terminus drush $PANTHEON_SITE_NAME.${MULTIDEV_NAME} -- cim -y
-          terminus drush $PANTHEON_SITE_NAME.${MULTIDEV_NAME} -- updb -y
-          terminus drush $PANTHEON_SITE_NAME.${MULTIDEV_NAME} -- cr
-        env:
-          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
-          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-
-      # 9. Merge Multidev into Dev
-      - name: Merge Multidev to Dev
-        shell: bash
-        run: |
-          terminus multidev:merge $PANTHEON_SITE_NAME.${MULTIDEV_NAME} --to-dev --yes
-          terminus multidev:delete $PANTHEON_SITE_NAME.${MULTIDEV_NAME} --yes
-        env:
-          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
-          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+    # ---------------------
+    # 9. Run Drush Commands
+    # ---------------------
+    - name: Import Config, Update DB, Clear Cache
+      shell: bash
+      run: |
+        terminus drush $MULTIDEV_NAME -- cim -y
+        terminus drush $MULTIDEV_NAME -- updb -y
+        terminus drush $MULTIDEV_NAME -- cr
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
