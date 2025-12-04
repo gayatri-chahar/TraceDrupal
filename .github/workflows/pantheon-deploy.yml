@@ -64,4 +64,58 @@ jobs:
         path: vendor
         key: composer-${{ hashFiles('composer.lock') }}
 
-    - name: Install Composer depe
+    - name: Install Composer dependencies
+      run: composer install --no-dev --optimize-autoloader
+
+    # -------------------------------------------------
+    # 6. NPM Theme Build (If custom theme exists)
+    # -------------------------------------------------
+    - name: Install NodeJS
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Build theme assets (if exists)
+      run: |
+        if [ -d "web/themes/custom" ]; then
+            for theme in web/themes/custom/*; do
+              if [ -f "$theme/package.json" ]; then
+                echo "Building theme: $theme"
+                cd "$theme"
+                npm install
+                npm run build || true
+                cd -
+              fi
+            done
+        fi
+
+    # -----------------------------------------
+    # 7. Add Pantheon as a Remote & Push Build
+    # -----------------------------------------
+    - name: Add Pantheon Git Remote
+      run: |
+        git remote add pantheon ssh://codeserver.dev.${PANTHEON_SITE_NAME}.drush.in:2222/~/repository.git || true
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+
+    - name: Push Code to Pantheon
+      run: git push pantheon master --force
+
+    # ---------------------
+    # 8. Install Terminus
+    # ---------------------
+    - name: Install Terminus
+      uses: pantheon-systems/terminus-github-actions@v1
+      with:
+        pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+
+    # ------------------------
+    # 9. Run Drush Commands
+    # ------------------------
+    - name: Import Config, Update DB, Clear Cache
+      run: |
+        terminus drush ${PANTHEON_SITE_NAME}.dev -- cim -y
+        terminus drush ${PANTHEON_SITE_NAME}.dev -- updb -y
+        terminus drush ${PANTHEON_SITE_NAME}.dev -- cr
+      env:
+        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
