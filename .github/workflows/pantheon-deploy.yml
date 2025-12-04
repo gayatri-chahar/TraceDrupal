@@ -1,4 +1,4 @@
-name: Deploy to Pantheon via Terminus
+name: Deploy to Pantheon Dev
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Install PHP & Composer
+      # 2. Setup PHP & Composer
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -24,7 +24,7 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-dev --optimize-autoloader
 
-      # 3. Install NodeJS & build theme
+      # 3. Setup NodeJS & build theme
       - name: Setup NodeJS
         uses: actions/setup-node@v3
         with:
@@ -49,20 +49,16 @@ jobs:
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
 
-      # 5. Deploy code via Terminus (deploy master to dev environment)
-      - name: Deploy to dev environment
-        shell: bash
-        run: |
-          # Deploy code to dev environment
-          terminus env:deploy $PANTHEON_SITE_NAME.dev --yes --note="Deploy from GitHub Actions"
+      # 5. Push code to Pantheon dev environment (Git-based)
+      - name: Add Pantheon Git Remote
+        run: git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_NAME }}.drush.in:2222/~/repository.git || true
 
-          # Import configuration via Drush
-          terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
-          
-          # Run database updates
-          terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
-          
-          # Clear cache
-          terminus drush $PANTHEON_SITE_NAME.dev -- cr
-        env:
-          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+      - name: Push code to Pantheon dev
+        run: git push pantheon master --force
+
+      # 6. Run Drush commands on dev
+      - name: Run Drush commands on Dev
+        run: |
+          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
+          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- updb -y
+          terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cr
