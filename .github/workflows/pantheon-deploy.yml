@@ -10,11 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Setup PHP & Composer
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -24,13 +22,12 @@ jobs:
       - name: Install Composer dependencies
         run: composer install --no-dev --optimize-autoloader
 
-      # 3. Setup NodeJS & build theme
       - name: Setup NodeJS
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      - name: Build theme assets (if exists)
+      - name: Build theme assets
         run: |
           if [ -d "web/themes/custom" ]; then
             for theme in web/themes/custom/*; do
@@ -43,20 +40,11 @@ jobs:
             done
           fi
 
-      # 4. Install Terminus
       - name: Install Terminus
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
 
-      # 5. Push code to Pantheon dev environment (Git-based)
-      - name: Add Pantheon Git Remote
-        run: git remote add pantheon ssh://codeserver.dev.${{ secrets.PANTHEON_SITE_NAME }}.drush.in:2222/~/repository.git || true
-
-      - name: Push code to Pantheon dev
-        run: git push pantheon master --force
-
-      # 6. Run Drush commands on dev
       - name: Run Drush commands on Dev
         run: |
           terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
