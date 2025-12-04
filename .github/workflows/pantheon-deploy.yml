@@ -3,69 +3,82 @@ name: Deploy to Pantheon
 on:
   push:
     branches:
-      - master
+      - master  # Deploy only when master is updated
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      # --------------------------
+      # 1. Checkout Repository
+      # --------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Validate secrets
-      run: |
-        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
-        if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
-      env:
-        PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+      # --------------------------
+      # 2. Validate Secrets
+      # --------------------------
+      - name: Validate GitHub Secrets
+        shell: bash
+        run: |
+          if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
+          if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
+        env:
+          PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-    # Install PHP & Composer
-    - name: Setup PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '8.2'
-        tools: composer
+      # --------------------------
+      # 3. Setup PHP & Composer
+      # --------------------------
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, gd, pdo_mysql
+          tools: composer
 
-    - name: Install Composer dependencies
-      run: composer install --no-dev --optimize-autoloader
+      - name: Cache Composer dependencies
+        uses: actions/cache@v3
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
 
-    # NodeJS for theme
-    - name: Setup NodeJS
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader
 
-    - name: Build theme assets
-      run: |
-        if [ -d "web/themes/custom" ]; then
-          for theme in web/themes/custom/*; do
-            if [ -f "$theme/package.json" ]; then
-              cd "$theme"
-              npm install
-              npm run build || true
-              cd -
-            fi
-          done
-        fi
+      # --------------------------
+      # 4. Setup NodeJS & Build Theme
+      # --------------------------
+      - name: Setup NodeJS
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
 
-    # Deploy using Pantheon GitHub Action
-    - name: Deploy to Pantheon
-      uses: pantheon-systems/terminus-github-actions@v1
-      with:
-        pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-        site: ${{ secrets.PANTHEON_SITE_NAME }}
-        env: dev
-        build: true   # run composer & node builds
-        deploy: true  # push code & apply updates
+      - name: Build theme assets
+        run: |
+          if [ -d "web/themes/custom" ]; then
+            for theme in web/themes/custom/*; do
+              if [ -f "$theme/package.json" ]; then
+                echo "Building theme: $theme"
+                cd "$theme"
+                npm install
+                npm run build || true
+                cd -
+              fi
+            done
+          fi
 
-    # Run Drush commands via Terminus API (no SSH needed)
-    - name: Run Drush Commands
-      run: |
-        terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
-        terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
-        terminus drush $PANTHEON_SITE_NAME.dev -- cr
-      env:
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
-        TERMINUS_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+      # --------------------------
+      # 5. Deploy to Pantheon via Terminus GitHub Action
+      # --------------------------
+      - name: Deploy to Pantheon
+        uses: pantheon-systems/terminus-github-actions@v1
+        with:
+          pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+          site: ${{ secrets.PANTHEON_SITE_NAME }}
+          env: dev
+          build: true      # runs Composer & Node build automatically
+          deploy: tr
