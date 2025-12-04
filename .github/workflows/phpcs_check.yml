@@ -20,7 +20,7 @@ jobs:
         # Uses the shivammathur/setup-php action to configure the correct PHP version and extensions
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1' # Adjust to your Drupal project's required PHP version
+          php-version: '8.3.27' # Adjust to your Drupal project's required PHP version
           extensions: mbstring, xml, pdo_mysql, zip, gd, curl
           tools: composer
 
