@@ -3,36 +3,35 @@ name: Deploy to Pantheon
 on:
   push:
     branches:
-      - master  # Deploy only when master is updated
+      - master
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # --------------------------
-    # 1. Checkout Repository
-    # --------------------------
+    # 1. Checkout repository
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # --------------------------
-    # 2. Validate Secrets
-    # --------------------------
-    - name: Validate GitHub Secrets
-      shell: bash
+    # 2. Validate secrets
+    - name: Validate secrets
       run: |
-        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
-        if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
+        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then
+          echo "❌ Missing PANTHEON_MACHINE_TOKEN"
+          exit 1
+        fi
+        if [[ -z "$PANTHEON_SITE_NAME" ]]; then
+          echo "❌ Missing PANTHEON_SITE_NAME"
+          exit 1
+        fi
       env:
         PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
         PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-    # --------------------------
     # 3. Setup PHP & Composer
-    # --------------------------
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
@@ -49,9 +48,7 @@ jobs:
     - name: Install Composer dependencies
       run: composer install --no-dev --optimize-autoloader
 
-    # --------------------------
-    # 4. Setup NodeJS for Theme
-    # --------------------------
+    # 4. NodeJS for theme builds
     - name: Setup NodeJS
       uses: actions/setup-node@v3
       with:
@@ -62,7 +59,6 @@ jobs:
         if [ -d "web/themes/custom" ]; then
           for theme in web/themes/custom/*; do
             if [ -f "$theme/package.json" ]; then
-              echo "Building theme: $theme"
               cd "$theme"
               npm install
               npm run build || true
@@ -71,21 +67,17 @@ jobs:
           done
         fi
 
-    # --------------------------
-    # 5. Deploy via Pantheon Terminus Action
-    # --------------------------
-    - name: Deploy to Pantheon Dev Environment
+    # 5. Deploy via Pantheon Terminus Action (no SSH needed)
+    - name: Deploy to Pantheon
       uses: pantheon-systems/terminus-github-actions@v1
       with:
         pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
         site: ${{ secrets.PANTHEON_SITE_NAME }}
         env: dev
-        build: true        # Run composer & node builds if needed
-        deploy: true       # Push code & apply upstream updates
+        build: true    # Run composer & node builds if needed
+        deploy: true   # Push code and apply upstream updates
 
-    # --------------------------
-    # 6. Run Drush Commands via Terminus
-    # --------------------------
+    # 6. Run Drush commands via Terminus
     - name: Import Config, Update DB, Clear Cache
       run: |
         terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
