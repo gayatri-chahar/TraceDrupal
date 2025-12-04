@@ -1,144 +1,57 @@
-name: Deploy to Pantheon
+name: Deploy to Pantheon via Terminus
 
 on:
   push:
     branches:
-      - master  # Deploy only when master is updated
+      - master
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # --------------------------
-    # 1. Checkout Repository
-    # --------------------------
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # -----------------------------------
-    # 2. Validate GitHub Secrets
-    # -----------------------------------
-    - name: Validate GitHub Secrets
-      shell: bash
-      run: |
-        if [[ -z "$PANTHEON_SSH_KEY" ]]; then echo "❌ Missing PANTHEON_SSH_KEY"; exit 1; fi
-        if [[ -z "$PANTHEON_MACHINE_TOKEN" ]]; then echo "❌ Missing PANTHEON_MACHINE_TOKEN"; exit 1; fi
-        if [[ -z "$PANTHEON_SITE_NAME" ]]; then echo "❌ Missing PANTHEON_SITE_NAME"; exit 1; fi
-      env:
-        PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
-        PANTHEON_MACHINE_TOKEN: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+      - name: Install PHP & Composer
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
 
-    # ---------------------
-    # 3. Setup SSH
-    # ---------------------
-    - name: Setup SSH
-      shell: bash
-      run: |
-        mkdir -p ~/.ssh
-        echo "$PANTHEON_SSH_KEY" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader
 
-        # Retry DNS resolution up to 5 times
-        for i in {1..5}; do
-          if ssh-keyscan -H codeserver.dev.$PANTHEON_SITE_NAME.drush.in >> ~/.ssh/known_hosts 2>/dev/null; then
-            echo "✅ DNS resolved and host added"
-            break
-          else
-            echo "⚠️ DNS not resolved, retrying in 5s..."
-            sleep 5
+      - name: Install NodeJS
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Build theme assets (if exists)
+        run: |
+          if [ -d "web/themes/custom" ]; then
+            for theme in web/themes/custom/*; do
+              if [ -f "$theme/package.json" ]; then
+                cd "$theme"
+                npm install
+                npm run build || true
+                cd -
+              fi
+            done
           fi
-        done
-      env:
-        PANTHEON_SSH_KEY: ${{ secrets.PANTHEON_SSH_KEY }}
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
 
-    # ---------------------
-    # 4. Setup PHP & Composer
-    # ---------------------
-    - name: Setup PHP
-      uses: shivammathur/setup-php@v2
-      with:
-        php-version: '8.2'
-        extensions: mbstring, intl, gd, pdo_mysql
-        tools: composer
+      - name: Install Terminus
+        uses: pantheon-systems/terminus-github-actions@v1
+        with:
+          pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
 
-    - name: Cache Composer dependencies
-      uses: actions/cache@v3
-      with:
-        path: vendor
-        key: composer-${{ hashFiles('composer.lock') }}
-
-    - name: Install Composer dependencies
-      run: composer install --no-dev --optimize-autoloader
-
-    # ---------------------
-    # 5. NodeJS for Theme Builds
-    # ---------------------
-    - name: Setup NodeJS
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-
-    - name: Build theme assets (if exists)
-      run: |
-        if [ -d "web/themes/custom" ]; then
-          for theme in web/themes/custom/*; do
-            if [ -f "$theme/package.json" ]; then
-              echo "Building theme: $theme"
-              cd "$theme"
-              npm install
-              npm run build || true
-              cd -
-            fi
-          done
-        fi
-
-    # ---------------------
-    # 6. Add Pantheon Git Remote
-    # ---------------------
-    - name: Add Pantheon Git Remote
-      shell: bash
-      run: |
-        git remote add pantheon ssh://codeserver.dev.$PANTHEON_SITE_NAME.drush.in:2222/~/repository.git || true
-      env:
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
-
-    - name: Push Code to Pantheon
-      run: git push pantheon master --force
-
-    # ---------------------
-    # 7. Install Terminus
-    # ---------------------
-    - name: Install Terminus
-      uses: pantheon-systems/terminus-github-actions@v1
-      with:
-        pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-
-    # ---------------------
-    # 8. Create Multidev Environment
-    # ---------------------
-    - name: Create Multidev
-      shell: bash
-      run: |
-        export MULTIDEV_NAME="ci-${GITHUB_RUN_NUMBER}"
-        echo "Creating multidev: $MULTIDEV_NAME"
-        terminus multidev:create $PANTHEON_SITE_NAME.dev $MULTIDEV_NAME --yes
-        echo "MULTIDEV_NAME=$MULTIDEV_NAME" >> $GITHUB_ENV
-      env:
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
-
-    # ---------------------
-    # 9. Run Drush Commands
-    # ---------------------
-    - name: Import Config, Update DB, Clear Cache
-      shell: bash
-      run: |
-        terminus drush $MULTIDEV_NAME -- cim -y
-        terminus drush $MULTIDEV_NAME -- updb -y
-        terminus drush $MULTIDEV_NAME -- cr
-      env:
-        PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
+      - name: Deploy to dev environment
+        shell: bash
+        run: |
+          # Import config, update DB, clear cache via Terminus API
+          terminus site:env:import $PANTHEON_SITE_NAME.dev --yes
+          terminus drush $PANTHEON_SITE_NAME.dev -- cim -y
+          terminus drush $PANTHEON_SITE_NAME.dev -- updb -y
+          terminus drush $PANTHEON_SITE_NAME.dev -- cr
+        env:
+          PANTHEON_SITE_NAME: ${{ secrets.PANTHEON_SITE_NAME }}
