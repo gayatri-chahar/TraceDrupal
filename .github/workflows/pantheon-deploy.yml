@@ -45,19 +45,27 @@ jobs:
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           
-      # --- NEW STEP: Setup SSH keys for remote Drush commands ---
+      # --- REVISED STEP: Setup SSH keys and force DNS resolution ---
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
-          # Add Pantheon's host key to known_hosts (prevents interactive prompts)
-          ssh-keyscan -p 2222 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in >> ~/.ssh/known_hosts
+          
+          # Use 'host' command with Google's public DNS server (8.8.8.8) to resolve the IP first
+          # This bypasses potential temporary DNS issues in the runner's default settings
+          PANTHEON_IP=$(host -4 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in 8.8.8.8 | grep has.address | awk '{print $NF}')
+          
+          if [ -z "$PANTHEON_IP" ]; then
+              echo "Error: Failed to resolve Pantheon IP address."
+              exit 1
+          fi
+
+          # Use the resolved IP address directly in ssh-keyscan to add the host key
+          ssh-keyscan -p 2222 $PANTHEON_IP >> ~/.ssh/known_hosts
           # Add the public key to Pantheon via Terminus
           terminus ssh-key:add ~/.ssh/id_rsa.pub
 
       - name: Set Pantheon Dev environment to SFTP mode
-        # Note: This is usually not necessary if using Terminus Drush commands via the above SSH setup, 
-        # but kept as it was in your original script. The SSH setup is key.
         run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
 
 
