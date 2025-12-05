@@ -45,7 +45,19 @@ jobs:
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           
+      # --- NEW STEP: Setup SSH keys for remote Drush commands ---
+      - name: Setup SSH keys
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
+          # Add Pantheon's host key to known_hosts (prevents interactive prompts)
+          ssh-keyscan -p 2222 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in >> ~/.ssh/known_hosts
+          # Add the public key to Pantheon via Terminus
+          terminus ssh-key:add ~/.ssh/id_rsa.pub
+
       - name: Set Pantheon Dev environment to SFTP mode
+        # Note: This is usually not necessary if using Terminus Drush commands via the above SSH setup, 
+        # but kept as it was in your original script. The SSH setup is key.
         run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
 
 
