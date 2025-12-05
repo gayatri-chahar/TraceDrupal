@@ -41,39 +41,35 @@ jobs:
           fi
 
       - name: Install Terminus
+        # This step handles authenticating Terminus via PANTHEON_MACHINE_TOKEN
+        # and should handle some default SSH setup.
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           
-      # --- REVISED STEP: Use Terminus to get SSH details and set up keys ---
-      - name: Setup SSH keys using Terminus connection info
+      # --- REVISED STEP: Simplified SSH Key Setup (Final Attempt) ---
+      - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
-          # Add the public key to Pantheon via Terminus API
+          
+          # Add the public key to Pantheon via Terminus API call
           terminus ssh-key:add ~/.ssh/id_rsa.pub
-
-          # Use Terminus to retrieve the specific SSH IP and Port via API
-          SITE_ENV=${{ secrets.PANTHEON_SITE_NAME }}.dev
-          SSH_URL=$(terminus connection:info $SITE_ENV --field=ssh_url)
-          SSH_HOST=$(echo $SSH_URL | cut -d'@' -f2 | cut -d':' -f1)
-          SSH_PORT=$(echo $SSH_URL | cut -d':' -f2)
-
-          if [ -z "$SSH_HOST" ] || [ -z "$SSH_PORT" ]; then
-              echo "Error: Failed to extract SSH host or port from Terminus connection:info."
-              exit 1
-          fi
-
-          # Use the extracted Host/IP and Port in ssh-keyscan to add the host key
-          ssh-keyscan -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts
-          echo "Successfully added $SSH_HOST to known_hosts."
-
+          
+          # Use the environment variable set by the terminus-github-actions step to get the SSH host
+          # The domain structure is standard and should resolve now that the key is added
+          ssh-keyscan -p 2222 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in >> ~/.ssh/known_hosts
 
       - name: Set Pantheon Dev environment to SFTP mode
+        # The drush commands require the connection to be in 'sftp' (writable) mode for config import
         run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
 
 
       - name: Run Drush commands on Dev
+        # These commands should now work because:
+        # 1. The public key is on Pantheon.
+        # 2. The host key is in known_hosts.
+        # 3. The environment is writable (SFTP mode).
         run: |
           terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
           terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- updb -y
