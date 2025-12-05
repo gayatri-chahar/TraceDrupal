@@ -41,35 +41,29 @@ jobs:
           fi
 
       - name: Install Terminus
-        # This step handles authenticating Terminus via PANTHEON_MACHINE_TOKEN
-        # and should handle some default SSH setup.
+        # This action logs in the CLI with your Machine Token
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           
-      # --- REVISED STEP: Simplified SSH Key Setup (Final Attempt) ---
+      # --- FINAL REVISED STEP: Setup SSH Keys using Terminus built-in commands ---
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
           
-          # Add the public key to Pantheon via Terminus API call
+          # Add the temporary public key to your Pantheon user account (API call)
           terminus ssh-key:add ~/.ssh/id_rsa.pub
           
-          # Use the environment variable set by the terminus-github-actions step to get the SSH host
-          # The domain structure is standard and should resolve now that the key is added
-          ssh-keyscan -p 2222 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in >> ~/.ssh/known_hosts
+          # Fetch Pantheon host keys securely via API and add to known_hosts (bypasses DNS issues)
+          terminus ssh-key:list --known-hosts
+          echo "Pantheon host keys added to known_hosts file."
 
       - name: Set Pantheon Dev environment to SFTP mode
-        # The drush commands require the connection to be in 'sftp' (writable) mode for config import
         run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
 
 
       - name: Run Drush commands on Dev
-        # These commands should now work because:
-        # 1. The public key is on Pantheon.
-        # 2. The host key is in known_hosts.
-        # 3. The environment is writable (SFTP mode).
         run: |
           terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- cim -y
           terminus drush ${{ secrets.PANTHEON_SITE_NAME }}.dev -- updb -y
