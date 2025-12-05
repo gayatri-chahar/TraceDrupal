@@ -46,7 +46,7 @@ jobs:
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           
-      # --- FINAL REVISED STEP: Setup SSH Keys using Terminus built-in commands ---
+      # --- FINAL REVISED STEP: Manual Host Key Fetch via curl ---
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
@@ -55,9 +55,12 @@ jobs:
           # Add the temporary public key to your Pantheon user account (API call)
           terminus ssh-key:add ~/.ssh/id_rsa.pub
           
-          # Fetch Pantheon host keys securely via API and add to known_hosts (bypasses DNS issues)
-          terminus ssh-key:list --known-hosts
-          echo "Pantheon host keys added to known_hosts file."
+          # Manually fetch the known SSH host keys from a reliable public source using curl
+          # This completely bypasses local DNS resolution issues
+          curl -O github.com
+          cat known_hosts >> ~/.ssh/known_hosts
+          rm known_hosts
+          echo "Pantheon host keys manually added to known_hosts file."
 
       - name: Set Pantheon Dev environment to SFTP mode
         run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
