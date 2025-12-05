@@ -2,8 +2,8 @@ _core:
   default_config_hash: ijfbzDTN4CbE7Sr-6ubWzy_t1vH4OtU1doNCLssVz-4
 langcode: en
 uuid: 1ab5db34-d4be-411c-908e-334549d7d96a
-name: Drupal
-mail: ''
+name: TraceDrupal
+mail: gayatrichahareshan20@gmail.com
 slogan: ''
 page:
   403: ''
