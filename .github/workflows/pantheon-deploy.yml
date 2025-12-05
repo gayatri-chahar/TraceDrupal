@@ -46,7 +46,7 @@ jobs:
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
           
-      # --- FINAL REVISED STEP: Manual Host Key Fetch via curl ---
+      # --- FINAL REVISED STEP: Manual Host Key Fetch via curl (Corrected URL) ---
       - name: Setup SSH keys
         run: |
           mkdir -p ~/.ssh
@@ -56,8 +56,8 @@ jobs:
           terminus ssh-key:add ~/.ssh/id_rsa.pub
           
           # Manually fetch the known SSH host keys from a reliable public source using curl
-          # This completely bypasses local DNS resolution issues
-          curl -O github.com
+          # The -L flag follows redirects to ensure we get the actual raw file content
+          curl -L raw.githubusercontent.com -o known_hosts
           cat known_hosts >> ~/.ssh/known_hosts
           rm known_hosts
           echo "Pantheon host keys manually added to known_hosts file."
