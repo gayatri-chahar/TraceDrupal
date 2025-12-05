@@ -44,6 +44,10 @@ jobs:
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
+
+      # --- NEW STEP: Ensure DNS utilities are installed for reliable lookups ---
+      - name: Install DNS utilities
+        run: sudo apt-get update && sudo apt-get install -y dnsutils
           
       # --- REVISED STEP: Setup SSH keys and force DNS resolution ---
       - name: Setup SSH keys
@@ -52,11 +56,10 @@ jobs:
           ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
           
           # Use 'host' command with Google's public DNS server (8.8.8.8) to resolve the IP first
-          # This bypasses potential temporary DNS issues in the runner's default settings
           PANTHEON_IP=$(host -4 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in 8.8.8.8 | grep has.address | awk '{print $NF}')
           
           if [ -z "$PANTHEON_IP" ]; then
-              echo "Error: Failed to resolve Pantheon IP address."
+              echo "Error: Failed to resolve Pantheon IP address even with external DNS."
               exit 1
           fi
 
