@@ -44,29 +44,30 @@ jobs:
         uses: pantheon-systems/terminus-github-actions@v1
         with:
           pantheon-machine-token: ${{ secrets.PANTHEON_MACHINE_TOKEN }}
-
-      # --- NEW STEP: Ensure DNS utilities are installed for reliable lookups ---
-      - name: Install DNS utilities
-        run: sudo apt-get update && sudo apt-get install -y dnsutils
           
-      # --- REVISED STEP: Setup SSH keys and force DNS resolution ---
-      - name: Setup SSH keys
+      # --- REVISED STEP: Use Terminus to get SSH details and set up keys ---
+      - name: Setup SSH keys using Terminus connection info
         run: |
           mkdir -p ~/.ssh
           ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
-          
-          # Use 'host' command with Google's public DNS server (8.8.8.8) to resolve the IP first
-          PANTHEON_IP=$(host -4 appserver.${{ secrets.PANTHEON_SITE_NAME }}.dev.drush.in 8.8.8.8 | grep has.address | awk '{print $NF}')
-          
-          if [ -z "$PANTHEON_IP" ]; then
-              echo "Error: Failed to resolve Pantheon IP address even with external DNS."
+          # Add the public key to Pantheon via Terminus API
+          terminus ssh-key:add ~/.ssh/id_rsa.pub
+
+          # Use Terminus to retrieve the specific SSH IP and Port via API
+          SITE_ENV=${{ secrets.PANTHEON_SITE_NAME }}.dev
+          SSH_URL=$(terminus connection:info $SITE_ENV --field=ssh_url)
+          SSH_HOST=$(echo $SSH_URL | cut -d'@' -f2 | cut -d':' -f1)
+          SSH_PORT=$(echo $SSH_URL | cut -d':' -f2)
+
+          if [ -z "$SSH_HOST" ] || [ -z "$SSH_PORT" ]; then
+              echo "Error: Failed to extract SSH host or port from Terminus connection:info."
               exit 1
           fi
 
-          # Use the resolved IP address directly in ssh-keyscan to add the host key
-          ssh-keyscan -p 2222 $PANTHEON_IP >> ~/.ssh/known_hosts
-          # Add the public key to Pantheon via Terminus
-          terminus ssh-key:add ~/.ssh/id_rsa.pub
+          # Use the extracted Host/IP and Port in ssh-keyscan to add the host key
+          ssh-keyscan -p $SSH_PORT $SSH_HOST >> ~/.ssh/known_hosts
+          echo "Successfully added $SSH_HOST to known_hosts."
+
 
       - name: Set Pantheon Dev environment to SFTP mode
         run: terminus connection:set ${{ secrets.PANTHEON_SITE_NAME }}.dev sftp
